@@ -13,7 +13,8 @@ const {
     getMyB2CTests,
     getB2CTestForExam,
     submitB2CExam,
-    getB2CResult
+    getB2CResult,
+    saveB2CQuestion
 } = require('../controllers/b2cTestController');
 
 const { protect, authorize } = require('../middlewares/auth');
@@ -29,6 +30,7 @@ router.put('/admin/tests/:testId', adminOrSuperAdmin, updateB2CTest);
 router.patch('/admin/tests/:testId/status', adminOrSuperAdmin, toggleB2CTestStatus);
 router.delete('/admin/tests/:testId', adminOrSuperAdmin, deleteB2CTest);
 router.get('/admin/tests/:testId/purchases', adminOrSuperAdmin, getTestPurchases);
+router.post('/admin/tests/:testId/save-question', adminOrSuperAdmin, saveB2CQuestion);
 
 // ─── USER ROUTES (Individual B2C Users) ──────────────────────────────────────
 router.get('/browse', userOnly, browseB2CTests);

@@ -6,9 +6,9 @@ const { protect } = require('../middlewares/auth');
 
 // Validation middleware for creating order
 const createOrderValidation = [
-    body('courseId')
-        .notEmpty().withMessage('Course ID is required')
-        .isMongoId().withMessage('Invalid Course ID format'),
+    body('itemType')
+        .notEmpty().withMessage('Item type is required')
+        .isIn(['course', 'test', 'b2c_test']).withMessage('Invalid item type'),
 ];
 
 router.post('/create-order', protect, createOrderValidation, createOrder);

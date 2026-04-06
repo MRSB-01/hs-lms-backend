@@ -37,6 +37,11 @@ const userSchema = new mongoose.Schema({
     lastLogin: { type: Date, default: null },
     lastSeen: { type: Date, default: Date.now },
     credentialPassEncrypted: { type: String, default: null },
+    // OTP Fields
+    otp: { type: String, default: null },
+    otpExpiry: { type: Date, default: null },
+    otpAttempts: { type: Number, default: 0 },
+    otpLockUntil: { type: Date, default: null },
 }, { timestamps: true });
 
 userSchema.pre('save', async function() {

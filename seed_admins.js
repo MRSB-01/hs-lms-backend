@@ -1,11 +1,20 @@
+require('dotenv').config();
 const mongoose = require('mongoose');
 const User = require('./src/models/User');
-require('dotenv').config();
+const envConfig = require('./src/config/envConfig');
 
 async function seedAdmins() {
     try {
-        await mongoose.connect(process.env.MONGODB_URI);
+        console.log('--- Connecting to:', envConfig.MONGODB_URI);
+        await mongoose.connect(envConfig.MONGODB_URI);
         console.log('--- Connected to MongoDB ---');
+
+        // Remove existing super admin if exists
+        const delResult = await User.deleteOne({ email: 'super@hslms.com' });
+        console.log('--- Deleted old admin (super@hslms.com):', delResult.deletedCount);
+        
+        // Also remove if hrutasolutions already exists to ensure fresh password
+        await User.deleteOne({ email: 'hrutasolutions@gmail.com' });
 
         const admins = [
             {
@@ -17,8 +26,8 @@ async function seedAdmins() {
             },
             {
                 name: 'Super Admin',
-                email: 'super@hslms.com',
-                password: 'Provider@2026',
+                email: 'hrutasolutions@gmail.com',
+                password: 'System@Provider@2026',
                 role: 'super_admin',
                 isVerified: true
             }

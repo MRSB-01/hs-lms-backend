@@ -1,3 +1,4 @@
+const envConfig = require('../config/envConfig');
 const { Course } = require('../models/Course');
 const UserPurchase = require('../models/UserPurchase');
 const VideoProgress = require('../models/VideoProgress');
@@ -51,25 +52,23 @@ exports.getAdminCourses = async (req, res) => {
 };
 
 // ─── GET SINGLE COURSE DETAILS (with access info) ────────────────────────────
-// Returns isAccessible and requiresPayment dynamically based on the calling user's role.
 exports.getCourseDetails = async (req, res) => {
     try {
-        const course = await Course.findById(req.params.id).select('-googleDriveLink');
+        const course = await Course.findById(req.params.id);
         if (!course) return res.status(404).json({ success: false, message: 'Course not found' });
 
-        // Determine access for optionally-authenticated users
         let isAccessible = false;
         let requiresPayment = false;
 
-        if (req.headers.authorization || req.cookies?.token) {
+        const authHeader = req.headers.authorization;
+        const cookieToken = req.cookies?.token;
+
+        if (authHeader || cookieToken) {
             try {
                 const jwt = require('jsonwebtoken');
                 const User = require('../models/User');
-                let token;
-                if (req.headers.authorization) token = req.headers.authorization.split(' ')[1];
-                else token = req.cookies.token;
-
-                const decoded = jwt.verify(token, process.env.JWT_SECRET);
+                const token = authHeader ? authHeader.split(' ')[1] : cookieToken;
+                const decoded = jwt.verify(token, envConfig.JWT_SECRET);
                 const user = await User.findById(decoded.id);
                 if (user) {
                     const access = await canAccessCourse(user, req.params.id);
@@ -77,33 +76,61 @@ exports.getCourseDetails = async (req, res) => {
                     requiresPayment = access.requiresPayment;
                 }
             } catch (err) {
-                // Token invalid – treat as guest
                 isAccessible = false;
-                requiresPayment = true; // default for guests: show buy
+                requiresPayment = true;
             }
         } else {
-            // Unauthenticated guest – B2C courses require payment
             requiresPayment = true;
         }
 
-        // Add embedUrl to lectures if content type is video
         const courseData = course.toObject();
-        if (courseData.chapters && Array.isArray(courseData.chapters)) {
-            courseData.chapters.forEach(chapter => {
-                if (chapter.lectures && Array.isArray(chapter.lectures)) {
-                    chapter.lectures.forEach(lecture => {
-                        if (lecture.videoUrl) {
-                            lecture.embedUrl = getDriveEmbedUrl(lecture.videoUrl);
-                        }
-                    });
-                }
-            });
+        
+        // Hide direct links and provide embed URLs if accessible
+        if (isAccessible) {
+            if (courseData.googleDriveLink) {
+                courseData.embedUrl = getDriveEmbedUrl(courseData.googleDriveLink);
+                delete courseData.googleDriveLink;
+            }
+            if (courseData.chapters) {
+                courseData.chapters.forEach(chapter => {
+                    if (chapter.pdfResource?.link) {
+                        chapter.pdfResource.embedUrl = getDriveEmbedUrl(chapter.pdfResource.link);
+                        delete chapter.pdfResource.link;
+                    }
+                    if (chapter.lectures) {
+                        chapter.lectures.forEach(lecture => {
+                            if (lecture.videoUrl) {
+                                lecture.videoEmbedUrl = getDriveEmbedUrl(lecture.videoUrl);
+                                delete lecture.videoUrl;
+                            }
+                            if (lecture.pdfResource?.link) {
+                                lecture.pdfResource.embedUrl = getDriveEmbedUrl(lecture.pdfResource.link);
+                                delete lecture.pdfResource.link;
+                            }
+                        });
+                    }
+                });
+            }
+        } else {
+            // Not accessible: hide all sensitive links
+            delete courseData.googleDriveLink;
+            if (courseData.chapters) {
+                courseData.chapters.forEach(chapter => {
+                    if (chapter.pdfResource) delete chapter.pdfResource.link;
+                    if (chapter.lectures) {
+                        chapter.lectures.forEach(lecture => {
+                            delete lecture.videoUrl;
+                            if (lecture.pdfResource) delete lecture.pdfResource.link;
+                        });
+                    }
+                });
+            }
         }
 
         res.json({
             success: true,
             data: {
-                ...course._doc,
+                ...courseData,
                 isAccessible,
                 requiresPayment
             }
@@ -235,101 +262,53 @@ exports.getMyPurchasedCourses = async (req, res) => {
     }
 };
 
-// ─── GET COURSE CONTENT (Google Drive link) – protected ──────────────────────
-// Only returns link if user has proven access via canAccessCourse
+// ─── GET COURSE CONTENT (Google Drive embed URLs) – protected ─────────────────
 exports.getCourseContent = async (req, res) => {
     try {
         const { isAccessible } = await canAccessCourse(req.user, req.params.id);
-
         if (!isAccessible) {
-            return res.status(403).json({
-                success: false,
-                message: 'Access Denied. Purchase or get enrolled to access this course content.'
+            return res.status(403).json({ success: false, message: 'Access Denied.' });
+        }
+
+        const course = await Course.findById(req.params.id);
+        if (!course) return res.status(404).json({ success: false, message: 'Course not found' });
+
+        const courseData = course.toObject();
+        
+        // Transform all links to embed URLs
+        if (courseData.googleDriveLink) {
+            courseData.embedUrl = getDriveEmbedUrl(courseData.googleDriveLink);
+            delete courseData.googleDriveLink;
+        }
+
+        if (courseData.chapters) {
+            courseData.chapters.forEach(chapter => {
+                if (chapter.pdfResource?.link) {
+                    chapter.pdfResource.embedUrl = getDriveEmbedUrl(chapter.pdfResource.link);
+                    delete chapter.pdfResource.link;
+                }
+                if (chapter.lectures) {
+                    chapter.lectures.forEach(lecture => {
+                        if (lecture.videoUrl) {
+                            lecture.videoEmbedUrl = getDriveEmbedUrl(lecture.videoUrl);
+                            delete lecture.videoUrl;
+                        }
+                        if (lecture.pdfResource?.link) {
+                            lecture.pdfResource.embedUrl = getDriveEmbedUrl(lecture.pdfResource.link);
+                            delete lecture.pdfResource.link;
+                        }
+                    });
+                }
             });
         }
 
-        const course = await Course.findById(req.params.id).select('googleDriveLink title');
-        if (!course) return res.status(404).json({ success: false, message: 'Course not found' });
-
-        // Log course access for student activity tracking
-
-
-        res.json({ success: true, data: { googleDriveLink: course.googleDriveLink, title: course.title } });
+        res.json({ success: true, data: courseData });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
 };
 
-// ─── VIDEO STREAM PROXY ───────────────────────────────────────────────────────
-exports.getVideoStream = async (req, res) => {
-    try {
-        const { lectureId } = req.params;
-        const course = await Course.findOne({ "chapters.lectures._id": lectureId });
-
-        if (!course) return res.status(404).json({ success: false, message: 'Lecture not found' });
-
-        // Find the lecture inside chapters
-        let lecture = null;
-        for (const chapter of course.chapters) {
-            lecture = chapter.lectures.find(l => l._id.toString() === lectureId);
-            if (lecture) break;
-        }
-
-        if (!lecture) return res.status(404).json({ success: false, message: 'Lecture not found' });
-
-        // Check access: Free preview OR user has course access
-        let hasAccess = lecture.isFree;
-        if (!hasAccess) {
-            const access = await canAccessCourse(req.user, course._id);
-            hasAccess = access.isAccessible;
-        }
-
-        if (!hasAccess) {
-            return res.status(403).json({ success: false, message: 'Access denied. Purchase course to watch.' });
-        }
-
-        const videoUrl = lecture.videoUrl;
-        // Extract Google Drive ID
-        const fileIdMatch = videoUrl.match(/(?:d\/|id=)([-\w]{25,})/) || videoUrl.match(/[-\w]{25,}/);
-        if (!fileIdMatch) return res.status(400).json({ success: false, message: 'Invalid video URL' });
-        const fileId = fileIdMatch[1] || fileIdMatch[0];
-
-        // Google Drive API URL for media
-        const driveApiUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${process.env.GOOGLE_DRIVE_API_KEY}`;
-
-        // Stream from Google Drive to the response
-        // Handling Range requests for seeking
-        const range = req.headers.range;
-
-        const axiosConfig = {
-            responseType: 'stream',
-            headers: {}
-        };
-
-        if (range) {
-            axiosConfig.headers.range = range;
-        }
-
-        const driveResponse = await axios.get(driveApiUrl, axiosConfig);
-
-        // Forward headers
-        res.status(driveResponse.status);
-        if (driveResponse.headers['content-range']) res.setHeader('Content-Range', driveResponse.headers['content-range']);
-        if (driveResponse.headers['accept-ranges']) res.setHeader('Accept-Ranges', driveResponse.headers['accept-ranges']);
-        res.setHeader('Content-Length', driveResponse.headers['content-length'] || 0);
-        res.setHeader('Content-Type', driveResponse.headers['content-type'] || 'video/mp4');
-
-        driveResponse.data.pipe(res);
-
-    } catch (error) {
-        console.error("Video Stream Proxy Error:", error.response?.data || error.message);
-        res.status(error.response?.status || 500).json({ 
-            success: false, 
-            message: 'Error streaming video from cloud', 
-            details: error.response?.data?.error?.message || error.message 
-        });
-    }
-};
+// Video streaming is handled via Google Drive Embed URLs directly in the frontend
 
 // ─── GET LAST WATCHED PROGRESS ───────────────────────────────────────────────
 exports.getLastWatchedProgress = async (req, res) => {

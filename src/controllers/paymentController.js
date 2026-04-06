@@ -1,3 +1,4 @@
+const envConfig = require('../config/envConfig');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const { Payment, TestPurchase } = require('../models/Tracking');
@@ -313,7 +314,7 @@ function getEmailTemplate(title, userName, itemName, amount, date, showCTA = fal
 
                 ${showCTA ? `
                 <div style="text-align: center; margin-top: 40px;">
-                    <a href="${process.env.CLIENT_URL}${link}" 
+                    <a href="${envConfig.CLIENT_URL}${link}" 
                        style="display: inline-block; background: #2563eb; color: #ffffff; padding: 18px 36px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; box-shadow: 0 10px 15px -3px rgba(37,99,235,0.4);">
                        Go to Dashboard
                     </a>

@@ -1,6 +1,7 @@
+const envConfig = require('../config/envConfig');
 const CryptoJS = require('crypto-js');
 
-const SECRET = process.env.JWT_SECRET || 'fallback-secret-key-hs-lms';
+const SECRET = envConfig.JWT_SECRET || 'fallback-secret-key-hs-lms';
 
 const encrypt = (text) => {
     return CryptoJS.AES.encrypt(text, SECRET).toString();

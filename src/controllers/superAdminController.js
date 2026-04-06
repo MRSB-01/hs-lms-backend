@@ -1,3 +1,4 @@
+const envConfig = require('../config/envConfig');
 const College = require('../models/College');
 const User = require('../models/User');
 const { Course } = require('../models/Course');
@@ -243,7 +244,7 @@ exports.approveCollegeRequest = async (req, res) => {
         college.generatedPassword = rawPassword; // Store plain-text for Super Admin reference
         await college.save();
 
-        const loginUrl = `${process.env.CLIENT_URL}/login/college-admin`;
+        const loginUrl = `${envConfig.CLIENT_URL}/login/college-admin`;
 
         await sendEmail({
             to: college.contactEmail,
@@ -374,7 +375,7 @@ exports.resetCollegePassword = async (req, res) => {
         college.generatedPassword = rawPassword;
         await college.save();
 
-        const loginUrl = `${process.env.CLIENT_URL}/login/college-admin`;
+        const loginUrl = `${envConfig.CLIENT_URL}/login/college-admin`;
 
         await sendEmail({
             to: admin.email,

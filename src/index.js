@@ -7,6 +7,8 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
 
+const envConfig = require('./config/envConfig');
+
 const app = express();
 
 // Middleware
@@ -14,7 +16,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    origin: envConfig.CLIENT_URL,
     credentials: true
 }));
 app.use(helmet({
@@ -24,7 +26,7 @@ app.use(helmet({
 app.use(morgan('dev'));
 
 // Database Connection & Server Start
-mongoose.connect(process.env.MONGODB_URI)
+mongoose.connect(envConfig.MONGODB_URI)
     .then(() => {
         console.log("-- MongoDB Connected Successfully");
 

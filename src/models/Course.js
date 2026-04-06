@@ -19,10 +19,18 @@ const courseSchema = new mongoose.Schema({
     chapters: [{
         title: { type: String, required: true },
         order: { type: Number, required: true },
+        pdfResource: {
+            title: { type: String, default: '' },
+            link: { type: String, default: '' }
+        },
         lectures: [{
             title: { type: String, required: true },
             order: { type: Number, required: true },
             videoUrl: { type: String, required: true }, // Google Drive Link
+            pdfResource: {
+                title: { type: String, default: '' },
+                link: { type: String, default: '' }
+            },
             duration: { type: Number, required: true }, // In minutes
             topicsCovered: [{ type: String }],
             description: { type: String },

@@ -9,7 +9,9 @@ const {
     logout, 
     getMe,
     updateProfile,
-    updatePassword 
+    updatePassword,
+    verifySuperAdminOTP,
+    resendSuperAdminOTP
 } = require('../controllers/authController');
 const { protect } = require('../middlewares/auth');
 const { validate, registerRules, loginRules } = require('../middlewares/validate');
@@ -17,8 +19,8 @@ const { validate, registerRules, loginRules } = require('../middlewares/validate
 router.post('/register', validate(registerRules), register);
 router.post('/login', validate(loginRules), login);
 router.post('/student-login', studentLogin);
-router.post('/send-otp', sendOTP);
-router.post('/verify-otp', loginWithOTP);
+router.post('/super-admin/verify-otp', verifySuperAdminOTP);
+router.post('/super-admin/resend-otp', resendSuperAdminOTP);
 router.get('/logout', logout);
 router.get('/me', protect, getMe);
 router.put('/update-profile', protect, updateProfile);

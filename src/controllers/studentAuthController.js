@@ -1,3 +1,4 @@
+const envConfig = require('../config/envConfig');
 const User = require('../models/User');
 const Batch = require('../models/Batch');
 const { sendEmail } = require('../utils/brevo');
@@ -72,7 +73,7 @@ exports.registerStudent = async (req, res) => {
         });
 
         // 7. Send Verification Email
-        const verificationUrl = `${process.env.CLIENT_URL}/verify-email?token=${verificationToken}`;
+        const verificationUrl = `${envConfig.CLIENT_URL}/verify-email?token=${verificationToken}`;
         await sendEmail({
             to: email,
             subject: 'Verify Your Email - HS LMS',
@@ -196,7 +197,7 @@ exports.loginStudent = async (req, res) => {
                 collegeId: student.collegeId, 
                 role: 'student' 
             },
-            process.env.JWT_SECRET,
+            envConfig.JWT_SECRET,
             { expiresIn: '2h' }
         );
 

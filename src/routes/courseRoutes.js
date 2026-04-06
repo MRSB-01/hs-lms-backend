@@ -9,7 +9,6 @@ const {
     deleteCourse,
     getMyPurchasedCourses,
     getCourseContent,
-    getVideoStream,
     saveProgress,
     getProgress,
     completeLecture,
@@ -30,8 +29,7 @@ router.get('/my-purchases', protect, getMyPurchasedCourses);
 // Admin – all courses including unpublished
 router.get('/admin/all', protect, authorize('administrator', 'super_admin'), getAdminCourses);
 
-// Video streaming proxy
-router.get('/video-stream/:lectureId', protect, getVideoStream);
+// Video streaming proxy removed as handled by Google Drive Embed URLs in frontend
 
 // Progress tracking
 router.post('/progress/save', protect, saveProgress);

@@ -1,9 +1,10 @@
+const envConfig = require('../config/envConfig');
 /**
  * Professional Email Templates for HS LMS
  * All templates use inline CSS for maximum email client compatibility
  */
 
-const BASE_URL = process.env.CLIENT_URL || 'http://localhost:3000';
+const BASE_URL = envConfig.CLIENT_URL || 'http://localhost:3000';
 
 const BRAND = {
     primary: '#4338ca', // Indigo-700

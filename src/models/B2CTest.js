@@ -24,8 +24,15 @@ const b2cTestSchema = new mongoose.Schema({
     price: { type: Number, required: true, min: 0 },
     duration: { type: Number, default: 30 }, // minutes
     status: { type: String, enum: ['active', 'disabled'], default: 'disabled' },
+    testType: { type: String, enum: ['manual', 'ai-generated', 'pdf'], default: 'manual' },
+    thumbnail: { type: String, default: '' },
+    pdfLink: { type: String, default: '' },
     questions: [b2cQuestionSchema],
-    totalQuestions: { type: Number, default: 25 },
+    studyMaterial: {
+        pdfTitle: { type: String, default: '' },
+        googleDriveLink: { type: String, default: '' }
+    },
+    totalQuestions: { type: Number, default: 0 },
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',

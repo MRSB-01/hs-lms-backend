@@ -20,7 +20,7 @@ const paymentSchema = new mongoose.Schema({
     amount: { type: Number, required: true },
     currency: { type: String, default: 'INR' },
     status: { type: String, enum: ['pending', 'completed', 'failed'], default: 'pending' },
-    itemType: { type: String, enum: ['course', 'test'], default: 'course' }
+    itemType: { type: String, enum: ['course', 'test', 'b2c_test'], default: 'course' }
 }, { timestamps: true });
 
 // Specific collection for easy access control monitoring

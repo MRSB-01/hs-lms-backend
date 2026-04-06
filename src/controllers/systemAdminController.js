@@ -1,3 +1,4 @@
+const envConfig = require('../config/envConfig');
 const User = require('../models/User');
 const College = require('../models/College');
 const { Course } = require('../models/Course');
@@ -285,7 +286,7 @@ exports.resetCollegePassword = async (req, res) => {
                     <br>
                     <p>Please login and change your password immediately.</p>
                     <p>Login Here:</p>
-                    <p><a href="${process.env.CLIENT_URL}/login/college-admin">${process.env.CLIENT_URL}/login/college-admin</a></p>
+                    <p><a href="${envConfig.CLIENT_URL}/login/college-admin">${envConfig.CLIENT_URL}/login/college-admin</a></p>
                     <br>
                     <p>Best Regards</p>
                     <p>HS LMS Team</p>
