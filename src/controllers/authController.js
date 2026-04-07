@@ -5,9 +5,45 @@ const { sendEmail } = require('../utils/brevo');
 const Batch = require('../models/Batch');
 const Division = require('../models/Division');
 
-const generateToken = (user) => {
-    const expiresIn = user.role === 'super_admin' ? '24h' : '2h';
-    return jwt.sign({ id: user._id }, envConfig.JWT_SECRET, { expiresIn });
+const generateToken = (userOrId) => {
+    // Determine user object and role
+    const user = typeof userOrId === 'object' && userOrId !== null ? userOrId : null;
+    const role = user ? user.role : 'user'; // Defaults to user if not specified
+    const id = user ? user._id : userOrId;
+
+    // Super Admin gets 24h, all others get 2h
+    const expiresIn = role === 'super_admin' ? '24h' : '2h';
+    return jwt.sign({ id }, envConfig.JWT_SECRET, { expiresIn });
+};
+
+// Helper for consistency: 24h cookie for Super Admin, 2h for others
+const sendAuthToken = (res, user, statusCode = 200) => {
+    const token = generateToken(user);
+    const role = user.role;
+    
+    // Cookie options
+    const cookieOptions = {
+        expires: new Date(Date.now() + (role === 'super_admin' ? 24 : 2) * 60 * 60 * 1000),
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict'
+    };
+
+    res.cookie('token', token, cookieOptions);
+
+    res.status(statusCode).json({
+        success: true,
+        token,
+        user: {
+            _id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            collegeId: user.collegeId,
+            batchId: user.batchId,
+            divisionId: user.divisionId
+        }
+    });
 };
 
 // Security check for account lockout
@@ -37,7 +73,6 @@ exports.register = async (req, res) => {
         if (userExists) return res.status(400).json({ success: false, message: 'Email already registered.' });
 
         const user = await User.create({ name, email, password, role: role || 'user', isVerified: true });
-        const token = generateToken(user._id);
 
         // Send welcome email (non-blocking)
         try {
@@ -48,10 +83,10 @@ exports.register = async (req, res) => {
                 htmlContent: getWelcomeEmail(user.name)
             });
         } catch (emailErr) {
-            
+            // Log or ignore
         }
 
-        res.status(201).json({ success: true, token, user: { _id: user._id, name: user.name, email: user.email, role: user.role } });
+        return sendAuthToken(res, user, 201);
     } catch (error) {
         res.status(500).json({ success: false, message: 'Server error during registration' });
     }
@@ -141,21 +176,7 @@ exports.login = async (req, res) => {
             user.lastLogin = new Date();
             await user.save();
 
-            const token = generateToken(user);
-
-            res.json({
-                success: true,
-                token,
-                user: {
-                    _id: user._id,
-                    name: user.name,
-                    email: user.email,
-                    role: user.role,
-                    collegeId: user.collegeId,
-                    batchId: user.batchId,
-                    divisionId: user.divisionId
-                }
-            });
+            return sendAuthToken(res, user);
         } else {
             // Failure: Increment security fields
             user.failedLoginAttempts += 1;
@@ -219,10 +240,10 @@ exports.studentLogin = async (req, res) => {
         if (await user.comparePassword(password)) {
             user.failedLoginAttempts = 0;
             user.lockUntil = null;
+            user.lastLogin = new Date();
             await user.save();
 
-            const token = generateToken(user._id);
-            res.json({ success: true, token, user: { _id: user._id, name: user.name, role: user.role, studentId: user.studentId, collegeId: user.collegeId, batchId: user.batchId, divisionId: user.divisionId } });
+            return sendAuthToken(res, user);
         } else {
             user.failedLoginAttempts += 1;
             if (user.failedLoginAttempts >= 3) {
@@ -322,18 +343,7 @@ exports.verifySuperAdminOTP = async (req, res) => {
         user.lastLogin = new Date();
         await user.save();
 
-        const token = generateToken(user);
-
-        res.json({
-            success: true,
-            token,
-            user: {
-                _id: user._id,
-                name: user.name,
-                email: user.email,
-                role: user.role
-            }
-        });
+        return sendAuthToken(res, user);
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
