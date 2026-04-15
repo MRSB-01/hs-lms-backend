@@ -93,4 +93,9 @@ router.delete('/batches/:batchId', deleteBatch);
 // Revenue Reports
 router.get('/revenue-report', getPaymentsReport);
 
+// Global Announcement Management
+const { updateGlobalAnnouncement, toggleAnnouncementStatus } = require('../controllers/systemController');
+router.post('/global-announcement', updateGlobalAnnouncement);
+router.patch('/global-announcement/status', toggleAnnouncementStatus);
+
 module.exports = router;

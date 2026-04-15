@@ -854,15 +854,25 @@ exports.getBatchCourses = async (req, res) => {
 // ----------------------------------------------------------------
 exports.createAnnouncement = async (req, res) => {
     try {
-        const { title, message, targetBatchId, expiryDate } = req.body;
+        const { title, message, targetBatchId, expiryDate, thumbnail, collegeId: bodyCollegeId } = req.body;
         if (!title || !message) return res.status(400).json({ success: false, message: 'Title and message are required' });
+
+        // Determine which college this announcement belongs to
+        const isAdmin = ['super_admin', 'administrator'].includes(req.user.role);
+        let finalCollegeId = bodyCollegeId || req.query.collegeId || (isAdmin ? null : req.user.collegeId);
+
+        // If it's a super admin and no collegeId provided, it's a site-wide global announcement
+        if (!finalCollegeId && !isAdmin) {
+            return res.status(400).json({ success: false, message: 'Institutional link (collegeId) is missing. Please select a college.' });
+        }
 
         const announcement = await Announcement.create({
             title,
             message,
-            collegeId: req.user.collegeId,
+            collegeId: finalCollegeId,
             targetBatchId: targetBatchId || null,
             expiryDate: expiryDate || null,
+            thumbnail: thumbnail || null,
             createdBy: req.user._id
         });
         res.status(201).json({ success: true, data: announcement });
@@ -871,9 +881,42 @@ exports.createAnnouncement = async (req, res) => {
     }
 };
 
+exports.updateAnnouncement = async (req, res) => {
+    try {
+        const { title, message, targetBatchId, expiryDate, thumbnail } = req.body;
+        const isAdmin = ['super_admin', 'administrator'].includes(req.user.role);
+        
+        const query = { _id: req.params.id };
+        if (!isAdmin) query.collegeId = req.user.collegeId;
+
+        const announcement = await Announcement.findOne(query);
+        if (!announcement) return res.status(404).json({ success: false, message: 'Announcement not found' });
+
+        if (title) announcement.title = title;
+        if (message) announcement.message = message;
+        if (thumbnail !== undefined) announcement.thumbnail = thumbnail;
+        if (expiryDate !== undefined) announcement.expiryDate = expiryDate;
+        
+        // Handle targetBatchId cleanup
+        if (targetBatchId !== undefined) {
+            announcement.targetBatchId = targetBatchId === "" ? null : targetBatchId;
+        }
+
+        await announcement.save();
+        res.json({ success: true, data: announcement });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 exports.getAnnouncements = async (req, res) => {
     try {
-        const announcements = await Announcement.find({ collegeId: req.user.collegeId })
+        const isAdmin = ['super_admin', 'administrator'].includes(req.user.role);
+        const collegeId = isAdmin ? (req.query.collegeId || null) : req.user.collegeId;
+
+        const query = collegeId ? { collegeId } : { collegeId: null };
+        
+        const announcements = await Announcement.find(query)
             .populate('targetBatchId', 'name')
             .sort({ createdAt: -1 });
         res.json({ success: true, data: announcements });
@@ -946,8 +989,8 @@ exports.getActiveAnnouncementsForStudent = async (req, res) => {
         const now = new Date();
 
         const announcements = await Announcement.find({
-            collegeId: student.collegeId,
             $and: [
+                { $or: [{ collegeId: student.collegeId }, { collegeId: null }] },
                 { $or: [{ targetBatchId: null }, { targetBatchId: student.batchId }] },
                 { $or: [{ expiryDate: null }, { expiryDate: { $gt: now } }] }
             ]

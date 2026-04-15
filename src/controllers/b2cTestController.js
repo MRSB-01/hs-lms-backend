@@ -9,7 +9,7 @@ exports.createManualB2CTest = async (req, res) => {
         const {
             title, category, subject, description, topicsCovered,
             instructorName, difficultyLevel, price, duration, status, questions, studyMaterial,
-            testType, thumbnail, pdfLink
+            testType, thumbnail, pdfLink, pdfDescription, pdfTopics
         } = req.body;
 
         if (!B2C_CATEGORIES.includes(category)) {
@@ -31,6 +31,8 @@ exports.createManualB2CTest = async (req, res) => {
             testType: testType || 'manual',
             thumbnail: thumbnail || '',
             pdfLink: pdfLink || '',
+            pdfDescription: pdfDescription || '',
+            pdfTopics: Array.isArray(pdfTopics) ? pdfTopics : [],
             questions: questions || [],
             studyMaterial: studyMaterial || { pdfTitle: '', googleDriveLink: '' },
             totalQuestions: testType === 'pdf' ? (Number(req.body.totalQuestions) || 0) : (questions ? questions.length : 0),
@@ -236,7 +238,13 @@ exports.getAllB2CTests = async (req, res) => {
             .populate('createdBy', 'name email')
             .sort({ createdAt: -1 });
 
-        res.json({ success: true, data: tests });
+        const testsProcessed = tests.map(t => {
+            const testObj = t.toObject();
+            if (testObj.thumbnail) testObj.thumbnail = getDriveDirectLink(testObj.thumbnail);
+            return testObj;
+        });
+
+        res.json({ success: true, data: testsProcessed });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -247,7 +255,11 @@ exports.getB2CTest = async (req, res) => {
     try {
         const test = await B2CTest.findById(req.params.testId).populate('createdBy', 'name email');
         if (!test) return res.status(404).json({ success: false, message: 'Test not found' });
-        res.json({ success: true, data: test });
+        
+        const testObj = test.toObject();
+        if (testObj.thumbnail) testObj.thumbnail = getDriveDirectLink(testObj.thumbnail);
+        
+        res.json({ success: true, data: testObj });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -260,7 +272,7 @@ exports.updateB2CTest = async (req, res) => {
         if (!test) return res.status(404).json({ success: false, message: 'Test not found' });
 
         const fields = ['title', 'category', 'subject', 'description', 'topicsCovered',
-            'instructorName', 'difficultyLevel', 'price', 'duration', 'status', 'questions', 'testType', 'thumbnail', 'pdfLink'];
+            'instructorName', 'difficultyLevel', 'price', 'duration', 'status', 'questions', 'testType', 'thumbnail', 'pdfLink', 'pdfDescription', 'pdfTopics'];
 
         fields.forEach(f => {
             if (req.body[f] !== undefined) test[f] = req.body[f];
@@ -373,6 +385,22 @@ const getDriveEmbedUrl = (driveUrl) => {
     return `https://drive.google.com/file/d/${fileId}/preview`;
 };
 
+const getDriveDirectLink = (driveUrl) => {
+    if (!driveUrl || !driveUrl.includes('drive.google.com')) return driveUrl;
+    let fileId = '';
+    const match1 = driveUrl.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+    if (match1) fileId = match1[1];
+    const match2 = driveUrl.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    if (match2) fileId = match2[1];
+    if (!fileId) {
+        const match3 = driveUrl.match(/[-\w]{25,}/);
+        if (match3) fileId = match3[0];
+    }
+    if (!fileId) return driveUrl;
+    // return `https://drive.google.com/uc?export=view&id=${fileId}`;
+    return `https://lh3.googleusercontent.com/d/${fileId}`; // More reliable for direct images
+};
+
 // ─── USER: Browse Active B2C Tests ───────────────────────────────────────────
 exports.browseB2CTests = async (req, res) => {
     try {
@@ -381,18 +409,26 @@ exports.browseB2CTests = async (req, res) => {
         if (category && category !== 'all') filter.category = category;
 
         const tests = await B2CTest.find(filter)
-            .select('-questions')  // Don't send questions while browsing
+            .select('-questions')
             .sort({ createdAt: -1 });
 
         // For each test, check if current user has purchased it
-        const userId = req.user._id;
-        const testIds = tests.map(t => t._id);
-        const purchases = await B2CPurchase.find({ userId, testId: { $in: testIds }, status: 'completed' });
-        const purchasedIds = new Set(purchases.map(p => p.testId.toString()));
+        const userId = req.user ? req.user._id : null;
+        let purchasedIds = new Set();
+        
+        if (userId) {
+            const testIds = tests.map(t => t._id);
+            const B2CPurchase = require('../models/B2CPurchase');
+            const purchases = await B2CPurchase.find({ userId, testId: { $in: testIds }, status: 'completed' });
+            purchasedIds = new Set(purchases.map(p => p.testId.toString()));
+        }
 
         const testsWithPurchaseStatus = tests.map(t => {
             const testObj = t.toObject();
-            if (purchasedIds.has(t._id.toString())) {
+            if (testObj.thumbnail) {
+                testObj.thumbnail = getDriveDirectLink(testObj.thumbnail);
+            }
+            if (userId && purchasedIds.has(t._id.toString())) {
                 testObj.hasPurchased = true;
                 if (testObj.studyMaterial?.googleDriveLink) {
                     testObj.studyMaterial.embedUrl = getDriveEmbedUrl(testObj.studyMaterial.googleDriveLink);
@@ -433,6 +469,9 @@ exports.getMyB2CTests = async (req, res) => {
             .filter(p => p.testId)
             .map(p => {
                 const t = p.testId.toObject();
+                if (t.thumbnail) {
+                    t.thumbnail = getDriveDirectLink(t.thumbnail);
+                }
                 if (t.studyMaterial?.googleDriveLink) {
                     t.studyMaterial.embedUrl = getDriveEmbedUrl(t.studyMaterial.googleDriveLink);
                     delete t.studyMaterial.googleDriveLink;

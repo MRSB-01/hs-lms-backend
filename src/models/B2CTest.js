@@ -27,6 +27,8 @@ const b2cTestSchema = new mongoose.Schema({
     testType: { type: String, enum: ['manual', 'ai-generated', 'pdf'], default: 'manual' },
     thumbnail: { type: String, default: '' },
     pdfLink: { type: String, default: '' },
+    pdfDescription: { type: String, default: '' },
+    pdfTopics: [{ type: String }],
     questions: [b2cQuestionSchema],
     studyMaterial: {
         pdfTitle: { type: String, default: '' },

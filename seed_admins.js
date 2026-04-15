@@ -26,6 +26,13 @@ async function seedAdmins() {
             },
             {
                 name: 'Super Admin',
+                email: 'sachinbadgujar7777@gmail.com',
+                password: 'sachinbadgujar7777@gmail.com',
+                role: 'super_admin',
+                isVerified: true
+            },
+            {
+                name: 'Super Admin',
                 email: 'hrutasolutions@gmail.com',
                 password: 'System@Provider@2026',
                 role: 'super_admin',

@@ -33,7 +33,8 @@ router.get('/admin/tests/:testId/purchases', adminOrSuperAdmin, getTestPurchases
 router.post('/admin/tests/:testId/save-question', adminOrSuperAdmin, saveB2CQuestion);
 
 // ─── USER ROUTES (Individual B2C Users) ──────────────────────────────────────
-router.get('/browse', userOnly, browseB2CTests);
+router.get('/public/browse', browseB2CTests); // Public browsing
+router.get('/browse', userOnly, browseB2CTests); // Authenticated browsing
 router.get('/my-tests', userOnly, getMyB2CTests);
 router.get('/exam/:testId', userOnly, getB2CTestForExam);
 router.post('/exam/:testId/submit', userOnly, submitB2CExam);

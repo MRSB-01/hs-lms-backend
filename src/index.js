@@ -63,6 +63,7 @@ app.use('/api/exams', require('./routes/examRoutes'));
 app.use('/api/payments', require('./routes/paymentRoutes'));
 app.use('/api/feedback', require('./routes/feedbackRoutes'));
 app.use('/api/b2c', require('./routes/b2cTestRoutes')); // B2C Test Module
+app.use('/api/config', require('./routes/configRoutes')); // Public system config
 
 app.get('/', (req, res) => {
     res.send('LMS API is running...');

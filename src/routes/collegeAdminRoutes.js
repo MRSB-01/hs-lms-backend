@@ -33,6 +33,7 @@ const {
     removeCourseFromDivision,
     getStudentProgress,
     createAnnouncement,
+    updateAnnouncement,
     getAnnouncements,
     deleteAnnouncement,
     bulkToggleStudentStatus,
@@ -110,6 +111,7 @@ router.get('/assigned-courses', getAssignedCoursesByAdmin);
 // Announcements
 router.get('/announcements', getAnnouncements);
 router.post('/announcements', createAnnouncement);
+router.put('/announcements/:id', updateAnnouncement);
 router.delete('/announcements/:id', deleteAnnouncement);
 
 // Analytics & Settings
