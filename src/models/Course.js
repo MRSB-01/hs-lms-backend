@@ -10,6 +10,7 @@ const courseSchema = new mongoose.Schema({
     level: { type: String, enum: ['Beginner', 'Intermediate', 'Advanced'], default: 'Beginner' },
     instructor: { type: String },
     contentType: { type: String, enum: ['pdf', 'video'], default: 'pdf' },
+    courseType: { type: String, enum: ['standard', 'structured'], default: 'standard' },
     googleDriveLink: { type: String }, // For PDF courses
     whatYouWillLearn: [{ type: String }],
     requirements: [{ type: String }],

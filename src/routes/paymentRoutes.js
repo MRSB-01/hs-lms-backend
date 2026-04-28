@@ -8,7 +8,7 @@ const { protect } = require('../middlewares/auth');
 const createOrderValidation = [
     body('itemType')
         .notEmpty().withMessage('Item type is required')
-        .isIn(['course', 'test', 'b2c_test']).withMessage('Invalid item type'),
+        .isIn(['course', 'test', 'b2c_test', 'subject', 'section']).withMessage('Invalid item type'),
 ];
 
 router.post('/create-order', protect, createOrderValidation, createOrder);

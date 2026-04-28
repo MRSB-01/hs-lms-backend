@@ -59,6 +59,9 @@ exports.getCourseDetails = async (req, res) => {
 
         let isAccessible = false;
         let requiresPayment = false;
+        let purchasedSubjectIds = [];
+        let purchasedSectionIds = [];
+        let userRole = null;
 
         const authHeader = req.headers.authorization;
         const cookieToken = req.cookies?.token;
@@ -71,9 +74,48 @@ exports.getCourseDetails = async (req, res) => {
                 const decoded = jwt.verify(token, envConfig.JWT_SECRET);
                 const user = await User.findById(decoded.id);
                 if (user) {
+                    userRole = user.role;
                     const access = await canAccessCourse(user, req.params.id);
                     isAccessible = access.isAccessible;
                     requiresPayment = access.requiresPayment;
+
+                    if (user.role === 'user' && course.courseType === 'structured') {
+                        const UserPurchase = require('../models/UserPurchase');
+                        const purchases = await UserPurchase.find({
+                            userId: user._id,
+                            courseId: course._id,
+                            status: 'completed'
+                        });
+                        purchasedSubjectIds = purchases.filter(p => p.subjectId).map(p => p.subjectId.toString());
+                        purchasedSectionIds = purchases.filter(p => p.sectionId).map(p => p.sectionId.toString());
+                    } else if (user.role === 'student' && course.courseType === 'structured') {
+                        const Batch = require('../models/Batch');
+                        const Division = require('../models/Division');
+                        
+                        if (user.batchId) {
+                            const batch = await Batch.findById(user.batchId);
+                            if (batch) {
+                                if (batch.sections) purchasedSectionIds.push(...batch.sections.map(id => id.toString()));
+                                if (batch.subjects) purchasedSubjectIds.push(...batch.subjects.map(id => id.toString()));
+                                // If the course is directly assigned to batch, they have full access
+                                if (batch.courses && batch.courses.some(id => id.toString() === course._id.toString())) {
+                                    isAccessible = true;
+                                } else {
+                                    isAccessible = false; // Override default broad access if specific parts are assigned
+                                }
+                            }
+                        }
+                        if (user.divisionId) {
+                            const division = await Division.findById(user.divisionId);
+                            if (division) {
+                                if (division.sections) purchasedSectionIds.push(...division.sections.map(id => id.toString()));
+                                if (division.subjects) purchasedSubjectIds.push(...division.subjects.map(id => id.toString()));
+                                if (division.courses && division.courses.some(id => id.toString() === course._id.toString())) {
+                                    isAccessible = true;
+                                }
+                            }
+                        }
+                    }
                 }
             } catch (err) {
                 isAccessible = false;
@@ -84,6 +126,59 @@ exports.getCourseDetails = async (req, res) => {
         }
 
         const courseData = course.toObject();
+
+        if (courseData.courseType === 'structured') {
+            const SectionModel = require('../models/Section').Section;
+            const SubjectModel = require('../models/Subject').Subject;
+            
+            const sections = await SectionModel.find({ courseId: course._id }).lean();
+            const subjects = await SubjectModel.find({ courseId: course._id }).lean();
+
+            courseData.sections = sections.map(sec => {
+                const secSubjects = subjects.filter(sub => sub.sectionId.toString() === sec._id.toString());
+                const isSectionPurchased = purchasedSectionIds.includes(sec._id.toString());
+
+                secSubjects.forEach(sub => {
+                    const isSubjectPurchased = purchasedSubjectIds.includes(sub._id.toString());
+                    const canAccessSubject = isAccessible || isSubjectPurchased || isSectionPurchased || ['super_admin', 'administrator', 'college_admin'].includes(userRole);
+                    
+                    if (canAccessSubject) {
+                        sub.isAccessible = true;
+                        if (sub.contentLink) {
+                            sub.embedUrl = getDriveEmbedUrl(sub.contentLink);
+                            // Preserve contentLink for administrators/super_admins so they can edit it
+                            if (!['super_admin', 'administrator'].includes(userRole)) {
+                                delete sub.contentLink;
+                            }
+                        }
+                        if (sub.lectures) {
+                            sub.lectures.forEach(l => {
+                                if (l.videoUrl) {
+                                    l.videoEmbedUrl = getDriveEmbedUrl(l.videoUrl);
+                                    if (!['super_admin', 'administrator'].includes(userRole)) {
+                                        delete l.videoUrl;
+                                    }
+                                }
+                            });
+                        }
+                    } else {
+                        sub.isAccessible = false;
+                        if (!['super_admin', 'administrator'].includes(userRole)) {
+                            delete sub.contentLink;
+                        }
+                        if (sub.lectures) {
+                            sub.lectures.forEach(l => {
+                                if (!['super_admin', 'administrator'].includes(userRole)) {
+                                    delete l.videoUrl;
+                                }
+                            });
+                        }
+                    }
+                });
+                return { ...sec, subjects: secSubjects };
+            });
+            courseData.purchasedSubjectIds = purchasedSubjectIds;
+        }
         
         // Hide direct links and provide embed URLs if accessible
         if (isAccessible) {
@@ -143,7 +238,7 @@ exports.getCourseDetails = async (req, res) => {
 // ─── CREATE COURSE (admin / super_admin) ─────────────────────────────────────
 exports.createCourse = async (req, res) => {
     try {
-        const { title, description, price, thumbnail, googleDriveLink, category, level, instructor, contentType, whatYouWillLearn, requirements, chapters } = req.body;
+        const { title, description, price, thumbnail, googleDriveLink, category, level, instructor, contentType, courseType, whatYouWillLearn, requirements, chapters, sections } = req.body;
 
         let totalDuration = 0;
         let totalLectures = 0;
@@ -157,7 +252,11 @@ exports.createCourse = async (req, res) => {
             });
         }
 
-        const course = await Course.create({
+        const CourseModel = require('../models/Course').Course;
+        const SectionModel = require('../models/Section').Section;
+        const SubjectModel = require('../models/Subject').Subject;
+
+        const course = await CourseModel.create({
             title,
             description,
             price: price || 0,
@@ -167,6 +266,7 @@ exports.createCourse = async (req, res) => {
             level,
             instructor,
             contentType: contentType || 'pdf',
+            courseType: courseType || 'standard',
             whatYouWillLearn,
             requirements,
             totalDuration,
@@ -174,6 +274,34 @@ exports.createCourse = async (req, res) => {
             chapters: chapters || [],
             isPublished: false // Default to false for new courses
         });
+
+        if (course.courseType === 'structured' && sections && sections.length > 0) {
+            for (const sectionData of sections) {
+                const section = await SectionModel.create({
+                    title: sectionData.title,
+                    description: sectionData.description,
+                    courseId: course._id,
+                    bundleDiscountPercentage: sectionData.bundleDiscountPercentage || 0
+                });
+
+                if (sectionData.subjects && sectionData.subjects.length > 0) {
+                    for (const subjectData of sectionData.subjects) {
+                        await SubjectModel.create({
+                            title: subjectData.title,
+                            description: subjectData.description,
+                            topicsCovered: subjectData.topicsCovered || [],
+                            price: subjectData.price || 0,
+                            contentType: subjectData.contentType || 'pdf',
+                            contentLink: subjectData.contentLink,
+                            lectures: subjectData.lectures || [],
+                            sectionId: section._id,
+                            courseId: course._id
+                        });
+                    }
+                }
+            }
+        }
+
         res.status(201).json({ success: true, data: course });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -201,6 +329,89 @@ exports.updateCourse = async (req, res) => {
 
         const course = await Course.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true });
         if (!course) return res.status(404).json({ success: false, message: 'Course not found' });
+
+        if (updateData.courseType === 'structured' && updateData.sections) {
+            const SectionModel = require('../models/Section').Section;
+            const SubjectModel = require('../models/Subject').Subject;
+            
+            const existingSections = await SectionModel.find({ courseId: course._id });
+            const incomingSectionIds = updateData.sections.map(s => s._id).filter(Boolean);
+            
+            // Delete sections that are not in incoming
+            for (const sec of existingSections) {
+                if (!incomingSectionIds.includes(sec._id.toString())) {
+                    await SectionModel.findByIdAndDelete(sec._id);
+                    await SubjectModel.deleteMany({ sectionId: sec._id });
+                }
+            }
+
+            for (const sectionData of updateData.sections) {
+                let section;
+                if (sectionData._id) {
+                    section = await SectionModel.findByIdAndUpdate(sectionData._id, {
+                        title: sectionData.title,
+                        description: sectionData.description,
+                        bundleDiscountPercentage: sectionData.bundleDiscountPercentage || 0
+                    }, { new: true });
+                } else {
+                    section = await SectionModel.create({
+                        title: sectionData.title,
+                        description: sectionData.description,
+                        courseId: course._id,
+                        bundleDiscountPercentage: sectionData.bundleDiscountPercentage || 0
+                    });
+                }
+
+                if (sectionData.subjects) {
+                    const existingSubjects = await SubjectModel.find({ sectionId: section._id });
+                    const incomingSubjectIds = sectionData.subjects.map(s => s._id).filter(Boolean);
+                    
+                    for (const sub of existingSubjects) {
+                        if (!incomingSubjectIds.includes(sub._id.toString())) {
+                            await SubjectModel.findByIdAndDelete(sub._id);
+                        }
+                    }
+
+                    for (const subjectData of sectionData.subjects) {
+                        if (subjectData._id) {
+                            const updateObj = {
+                                title: subjectData.title,
+                                description: subjectData.description,
+                                topicsCovered: subjectData.topicsCovered || [],
+                                price: subjectData.price || 0,
+                                contentType: subjectData.contentType || 'pdf',
+                                lectures: subjectData.lectures || []
+                            };
+                            
+                            // Only update contentLink if it's provided and not empty
+                            if (subjectData.contentLink !== undefined && subjectData.contentLink !== null && subjectData.contentLink !== "") {
+                                updateObj.contentLink = subjectData.contentLink;
+                            }
+
+                            await SubjectModel.findByIdAndUpdate(subjectData._id, updateObj);
+                        } else {
+                            const createObj = {
+                                title: subjectData.title,
+                                description: subjectData.description,
+                                topicsCovered: subjectData.topicsCovered || [],
+                                price: subjectData.price || 0,
+                                contentType: subjectData.contentType || 'pdf',
+                                lectures: subjectData.lectures || [],
+                                sectionId: section._id,
+                                courseId: course._id
+                            };
+
+                            if (subjectData.contentLink) {
+                                createObj.contentLink = subjectData.contentLink;
+                            }
+
+                            await SubjectModel.create(createObj);
+                        }
+                    }
+                }
+            }
+        }
+
         res.json({ success: true, data: course });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -239,21 +450,105 @@ exports.getMyPurchasedCourses = async (req, res) => {
 
         } else if (user.role === 'student') {
             const Batch = require('../models/Batch');
+            const Division = require('../models/Division');
             const College = require('../models/College');
 
             const college = await College.findById(user.collegeId);
             if (college && college.status === 'approved' && user.batchId) {
                 const batch = await Batch.findById(user.batchId).populate('courses');
-                courses = batch ? batch.courses : [];
+                let division = null;
+                if (user.divisionId) {
+                    division = await Division.findById(user.divisionId).populate('courses');
+                }
+
+                const courseIdsSet = new Set();
+                const rawCourses = [];
+
+                const addCourse = (c) => {
+                    if (c && !courseIdsSet.has(c._id.toString())) {
+                        courseIdsSet.add(c._id.toString());
+                        rawCourses.push(c);
+                    }
+                };
+
+                if (batch && batch.courses) batch.courses.forEach(addCourse);
+                if (division && division.courses) division.courses.forEach(addCourse);
+
+                // For sections and subjects, we need to find their courseId
+                const sectionIds = [];
+                const subjectIds = [];
+                if (batch) {
+                    if (batch.sections) sectionIds.push(...batch.sections);
+                    if (batch.subjects) subjectIds.push(...batch.subjects);
+                }
+                if (division) {
+                    if (division.sections) sectionIds.push(...division.sections);
+                    if (division.subjects) subjectIds.push(...division.subjects);
+                }
+
+                if (sectionIds.length > 0) {
+                    const SectionModel = require('../models/Section').Section;
+                    const sections = await SectionModel.find({ _id: { $in: sectionIds } }).populate('courseId');
+                    sections.forEach(sec => addCourse(sec.courseId));
+                }
+
+                if (subjectIds.length > 0) {
+                    const SubjectModel = require('../models/Subject').Subject;
+                    const subjects = await SubjectModel.find({ _id: { $in: subjectIds } }).populate('courseId');
+                    subjects.forEach(sub => addCourse(sub.courseId));
+                }
+
+                courses = rawCourses;
             }
 
         } else if (user.role === 'user') {
-            // B2C: only purchased courses
+            // B2C: only purchased courses or subjects/sections within a course
             const purchases = await UserPurchase.find({
                 userId: user._id,
                 status: 'completed'
             }).populate('courseId');
-            courses = purchases.map(p => p.courseId).filter(Boolean);
+
+            const uniqueCourseIds = new Set();
+            const purchasedSubjectIds = purchases.filter(p => p.subjectId).map(p => p.subjectId.toString());
+            const purchasedSectionIds = purchases.filter(p => p.sectionId).map(p => p.sectionId.toString());
+
+            const rawCourses = [];
+            for (const p of purchases) {
+                if (p.courseId && !uniqueCourseIds.has(p.courseId._id.toString())) {
+                    uniqueCourseIds.add(p.courseId._id.toString());
+                    
+                    const courseObj = p.courseId.toObject();
+                    if (courseObj.courseType === 'structured') {
+                        const SectionModel = require('../models/Section').Section;
+                        const SubjectModel = require('../models/Subject').Subject;
+                        
+                        const sections = await SectionModel.find({ courseId: courseObj._id }).lean();
+                        const subjects = await SubjectModel.find({ courseId: courseObj._id }).lean();
+                        
+                        courseObj.sections = sections.map(sec => {
+                            const secSubjects = subjects.filter(sub => sub.sectionId.toString() === sec._id.toString());
+                            const isSectionPurchased = purchasedSectionIds.includes(sec._id.toString());
+
+                            secSubjects.forEach(sub => {
+                                const isSubjectPurchased = purchasedSubjectIds.includes(sub._id.toString());
+                                const isAccessible = isSubjectPurchased || isSectionPurchased;
+                                
+                                sub.isPurchased = isAccessible;
+                                sub.isAccessible = isAccessible;
+                                if (!isAccessible) {
+                                    delete sub.contentLink;
+                                    if (sub.lectures) {
+                                        sub.lectures.forEach(l => delete l.videoUrl);
+                                    }
+                                }
+                            });
+                            return { ...sec, subjects: secSubjects };
+                        });
+                    }
+                    rawCourses.push(courseObj);
+                }
+            }
+            courses = rawCourses;
         }
 
         res.json({ success: true, data: courses });

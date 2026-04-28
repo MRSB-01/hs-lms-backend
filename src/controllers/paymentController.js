@@ -60,44 +60,81 @@ exports.createOrder = async (req, res) => {
         }
 
         // 3. SECURE INPUT HANDLING
-        const { courseId, testId, b2cTestId, itemType = 'course' } = req.body;
+        const { courseId, testId, b2cTestId, subjectId, sectionId, itemType = 'course' } = req.body;
 
         let item;
+        let price = 0;
+        let isPublished = false;
+
         if (itemType === 'course') {
             item = await Course.findById(courseId);
+            if (item) {
+                price = item.price;
+                isPublished = item.isPublished;
+            }
         } else if (itemType === 'test') {
             item = await Test.findById(testId);
+            if (item) {
+                price = item.price;
+                isPublished = item.status === 'active';
+            }
         } else if (itemType === 'b2c_test') {
             item = await B2CTest.findById(b2cTestId);
+            if (item) {
+                price = item.price;
+                isPublished = item.status === 'active';
+            }
+        } else if (itemType === 'subject') {
+            const Subject = require('../models/Subject').Subject;
+            item = await Subject.findById(subjectId).populate('courseId');
+            if (item) {
+                price = item.price;
+                isPublished = item.courseId && item.courseId.isPublished;
+            }
+        } else if (itemType === 'section') {
+            const Section = require('../models/Section').Section;
+            const Subject = require('../models/Subject').Subject;
+            item = await Section.findById(sectionId).populate('courseId');
+            if (item) {
+                const subjects = await Subject.find({ sectionId: item._id });
+                const totalPrice = subjects.reduce((sum, sub) => sum + (sub.price || 0), 0);
+                const discount = item.bundleDiscountPercentage || 0;
+                price = Math.round(totalPrice * (1 - discount / 100));
+                isPublished = item.courseId && item.courseId.isPublished;
+            }
         }
 
         if (!item) {
-            
             return res.status(404).json({ success: false, message: 'Invalid Selection' });
         }
 
         // 4. ANTI-TAMPERING & STATUS CHECKS
-        const isPublished = itemType === 'course' ? item.isPublished : item.status === 'active';
         if (!isPublished) {
-            
             return res.status(403).json({ success: false, message: `This item is currently unavailable for purchase.` });
         }
         
-        const price = item.price;
         if (price <= 0) {
             return res.status(400).json({ success: false, message: `This item is free. No payment required.` });
         }
 
         // 5. DUPLICATE PURCHASE PREVENTION
         if (itemType === 'course') {
-            const existing = await UserPurchase.findOne({ userId: req.user._id, courseId: item._id, status: 'completed' });
+            const existing = await UserPurchase.findOne({ userId: req.user._id, courseId: item._id, status: 'completed', subjectId: null, sectionId: null });
             if (existing) return res.status(400).json({ success: false, message: 'You have already purchased this course.' });
         } else if (itemType === 'b2c_test') {
             const existing = await B2CPurchase.findOne({ userId: req.user._id, testId: item._id, status: 'completed' });
             if (existing) return res.status(400).json({ success: false, message: 'You have already purchased access to this test.' });
-        } else {
+        } else if (itemType === 'test') {
             const existing = await TestPurchase.findOne({ userId: req.user._id, testId: item._id, status: 'completed' });
             if (existing) return res.status(400).json({ success: false, message: 'You have already purchased access to this test.' });
+        } else if (itemType === 'subject') {
+            const existing = await UserPurchase.findOne({ userId: req.user._id, subjectId: item._id, status: 'completed' });
+            if (existing) return res.status(400).json({ success: false, message: 'You have already purchased this subject.' });
+        } else if (itemType === 'section') {
+            // Check if section was bought (optional, depending on if we record sectionId in UserPurchase or just individual subjects)
+            // Let's assume UserPurchase can have sectionId if bought as bundle
+            const existing = await UserPurchase.findOne({ userId: req.user._id, sectionId: item._id, status: 'completed' });
+            if (existing) return res.status(400).json({ success: false, message: 'You have already purchased this section bundle.' });
         }
 
         // 6. SECURE AMOUNT CALCULATION
@@ -116,8 +153,10 @@ exports.createOrder = async (req, res) => {
         // Save pending payment record
         await Payment.create({
             userId: req.user._id,
-            courseId: itemType === 'course' ? item._id : null,
+            courseId: (itemType === 'course' || itemType === 'subject' || itemType === 'section') ? (item.courseId?._id || item.courseId || item._id) : null,
             testId: (itemType === 'test' || itemType === 'b2c_test') ? item._id : null,
+            subjectId: itemType === 'subject' ? item._id : null,
+            sectionId: itemType === 'section' ? item._id : null,
             itemType,
             razorpayOrderId: order.id,
             amount: price,
@@ -189,9 +228,15 @@ exports.verifyPayment = async (req, res) => {
         } else if (paymentRecord.itemType === 'b2c_test') {
             await grantB2CTestAccess(req.user, paymentRecord.testId, razorpay_payment_id, razorpay_order_id, paymentRecord.amount);
             res.json({ success: true, message: 'Test purchased successfully! You can now start the test.' });
-        } else {
+        } else if (paymentRecord.itemType === 'test') {
             await grantTestAccess(req.user, paymentRecord.testId, razorpay_payment_id, paymentRecord.amount);
             res.json({ success: true, message: 'Payment verified. Test access granted!' });
+        } else if (paymentRecord.itemType === 'subject') {
+            await grantSubjectAccess(req.user, paymentRecord.courseId, paymentRecord.subjectId, razorpay_payment_id, paymentRecord.amount);
+            res.json({ success: true, message: 'Payment verified. Subject access granted!' });
+        } else if (paymentRecord.itemType === 'section') {
+            await grantSectionAccess(req.user, paymentRecord.courseId, paymentRecord.sectionId, razorpay_payment_id, paymentRecord.amount);
+            res.json({ success: true, message: 'Payment verified. Section bundle access granted!' });
         }
     } catch (error) {
         
@@ -222,6 +267,60 @@ async function grantCourseAccess(user, courseId, paymentId, amount) {
             to: user.email,
             subject: `Course Purchase Confirmed - HS LMS`,
             htmlContent: getCoursePurchaseEmail(user.name, course.title, amount, date)
+        });
+    } catch (e) {  }
+}
+
+async function grantSubjectAccess(user, courseId, subjectId, paymentId, amount) {
+    const existing = await UserPurchase.findOne({ userId: user._id, subjectId, status: 'completed' });
+    if (existing) return;
+
+    await UserPurchase.create({
+        userId: user._id,
+        courseId,
+        subjectId,
+        paymentId,
+        amount,
+        status: 'completed'
+    });
+
+    const Subject = require('../models/Subject').Subject;
+    const subject = await Subject.findById(subjectId);
+    if (!subject) return;
+
+    const date = new Date().toLocaleDateString('en-IN', { dateStyle: 'long' });
+    try {
+        await sendEmail({
+            to: user.email,
+            subject: `Subject Purchase Confirmed - HS LMS`,
+            htmlContent: getCoursePurchaseEmail(user.name, subject.title, amount, date)
+        });
+    } catch (e) {  }
+}
+
+async function grantSectionAccess(user, courseId, sectionId, paymentId, amount) {
+    const existing = await UserPurchase.findOne({ userId: user._id, sectionId, status: 'completed' });
+    if (existing) return;
+
+    await UserPurchase.create({
+        userId: user._id,
+        courseId,
+        sectionId,
+        paymentId,
+        amount,
+        status: 'completed'
+    });
+
+    const Section = require('../models/Section').Section;
+    const section = await Section.findById(sectionId);
+    if (!section) return;
+
+    const date = new Date().toLocaleDateString('en-IN', { dateStyle: 'long' });
+    try {
+        await sendEmail({
+            to: user.email,
+            subject: `Section Bundle Purchase Confirmed - HS LMS`,
+            htmlContent: getCoursePurchaseEmail(user.name, section.title, amount, date)
         });
     } catch (e) {  }
 }

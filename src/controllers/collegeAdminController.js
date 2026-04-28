@@ -703,17 +703,34 @@ exports.updateSettings = async (req, res) => {
 // ----------------------------------------------------------------
 exports.assignCoursesToBatch = async (req, res) => {
     try {
-        const { courseIds } = req.body;
+        const { courseIds, sectionIds, subjectIds } = req.body;
         const batch = await Batch.findOne({ _id: req.params.batchId, collegeId: req.user.collegeId });
         if (!batch) return res.status(404).json({ success: false, message: 'Batch not found' });
 
         // Merge without duplicates
-        const existing = batch.courses.map(id => id.toString());
-        const toAdd = (courseIds || []).filter(id => !existing.includes(id.toString()));
-        batch.courses.push(...toAdd);
+        if (courseIds) {
+            const existingCourses = batch.courses.map(id => id.toString());
+            const toAddCourses = courseIds.filter(id => !existingCourses.includes(id.toString()));
+            batch.courses.push(...toAddCourses);
+        }
+        
+        if (sectionIds) {
+            const existingSections = (batch.sections || []).map(id => id.toString());
+            const toAddSections = sectionIds.filter(id => !existingSections.includes(id.toString()));
+            batch.sections = batch.sections || [];
+            batch.sections.push(...toAddSections);
+        }
+        
+        if (subjectIds) {
+            const existingSubjects = (batch.subjects || []).map(id => id.toString());
+            const toAddSubjects = subjectIds.filter(id => !existingSubjects.includes(id.toString()));
+            batch.subjects = batch.subjects || [];
+            batch.subjects.push(...toAddSubjects);
+        }
+
         await batch.save();
 
-        res.json({ success: true, message: `${toAdd.length} course(s) assigned to batch`, data: batch });
+        res.json({ success: true, message: `Assignment successful`, data: batch });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -751,16 +768,33 @@ exports.getBatchCourses = async (req, res) => {
 // ----------------------------------------------------------------
 exports.assignCoursesToDivision = async (req, res) => {
     try {
-        const { courseIds } = req.body;
+        const { courseIds, sectionIds, subjectIds } = req.body;
         const division = await Division.findById(req.params.divisionId);
         if (!division) return res.status(404).json({ success: false, message: 'Division not found' });
 
-        const existing = division.courses.map(id => id.toString());
-        const toAdd = (courseIds || []).filter(id => !existing.includes(id.toString()));
-        division.courses.push(...toAdd);
+        if (courseIds) {
+            const existing = division.courses.map(id => id.toString());
+            const toAdd = courseIds.filter(id => !existing.includes(id.toString()));
+            division.courses.push(...toAdd);
+        }
+
+        if (sectionIds) {
+            const existing = (division.sections || []).map(id => id.toString());
+            const toAdd = sectionIds.filter(id => !existing.includes(id.toString()));
+            division.sections = division.sections || [];
+            division.sections.push(...toAdd);
+        }
+
+        if (subjectIds) {
+            const existing = (division.subjects || []).map(id => id.toString());
+            const toAdd = subjectIds.filter(id => !existing.includes(id.toString()));
+            division.subjects = division.subjects || [];
+            division.subjects.push(...toAdd);
+        }
+
         await division.save();
 
-        res.json({ success: true, message: `${toAdd.length} course(s) assigned to division`, data: division });
+        res.json({ success: true, message: `Assignment successful`, data: division });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }

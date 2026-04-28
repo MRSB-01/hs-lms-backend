@@ -418,7 +418,7 @@ exports.browseB2CTests = async (req, res) => {
         
         if (userId) {
             const testIds = tests.map(t => t._id);
-            const B2CPurchase = require('../models/B2CPurchase');
+
             const purchases = await B2CPurchase.find({ userId, testId: { $in: testIds }, status: 'completed' });
             purchasedIds = new Set(purchases.map(p => p.testId.toString()));
         }

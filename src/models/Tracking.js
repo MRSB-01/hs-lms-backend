@@ -14,13 +14,15 @@ const paymentSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     courseId: { type: mongoose.Schema.Types.ObjectId, ref: 'Course' },
     testId: { type: mongoose.Schema.Types.ObjectId, ref: 'Test' }, // Added for B2C Test payments
+    subjectId: { type: mongoose.Schema.Types.ObjectId, ref: 'Subject' },
+    sectionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Section' },
     razorpayOrderId: { type: String, required: true },
     razorpayPaymentId: { type: String },
     razorpaySignature: { type: String },
     amount: { type: Number, required: true },
     currency: { type: String, default: 'INR' },
     status: { type: String, enum: ['pending', 'completed', 'failed'], default: 'pending' },
-    itemType: { type: String, enum: ['course', 'test', 'b2c_test'], default: 'course' }
+    itemType: { type: String, enum: ['course', 'test', 'b2c_test', 'subject', 'section'], default: 'course' }
 }, { timestamps: true });
 
 // Specific collection for easy access control monitoring
